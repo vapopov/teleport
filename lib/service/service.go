@@ -2138,6 +2138,7 @@ func (process *TeleportProcess) initAuthService() error {
 			VersionStorage:          process.storage,
 			Authority:               cfg.Keygen,
 			ClusterConfiguration:    cfg.ClusterConfiguration,
+			AutoUpdateService:       cfg.AutoUpdateService,
 			ClusterAuditConfig:      cfg.Auth.AuditConfig,
 			ClusterNetworkingConfig: cfg.Auth.NetworkingConfig,
 			SessionRecordingConfig:  cfg.Auth.SessionRecordingConfig,
@@ -2622,6 +2623,7 @@ func (process *TeleportProcess) newAccessCacheForServices(cfg accesspoint.Config
 	cfg.WebSession = services.Identity.WebSessions()
 	cfg.WebToken = services.Identity.WebTokens()
 	cfg.WindowsDesktops = services.WindowsDesktops
+	cfg.AutoUpdateService = services.AutoUpdateService
 
 	return accesspoint.NewCache(cfg)
 }
@@ -2665,6 +2667,7 @@ func (process *TeleportProcess) newAccessCacheForClient(cfg accesspoint.Config, 
 	cfg.WebSession = client.WebSessions()
 	cfg.WebToken = client.WebTokens()
 	cfg.WindowsDesktops = client
+	cfg.AutoUpdateService = client.AutoupdateServiceClient()
 
 	return accesspoint.NewCache(cfg)
 }

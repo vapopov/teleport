@@ -200,6 +200,12 @@ func NewServer(cfg *InitConfig, opts ...ServerOption) (*Server, error) {
 		}
 		cfg.ClusterConfiguration = clusterConfig
 	}
+	if cfg.AutoUpdateService == nil {
+		cfg.AutoUpdateService, err = local.NewAutoUpdateService(cfg.Backend)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+	}
 	if cfg.Restrictions == nil {
 		cfg.Restrictions = local.NewRestrictionsService(cfg.Backend)
 	}
@@ -412,6 +418,7 @@ func NewServer(cfg *InitConfig, opts ...ServerOption) (*Server, error) {
 		Access:                    cfg.Access,
 		DynamicAccessExt:          cfg.DynamicAccessExt,
 		ClusterConfiguration:      cfg.ClusterConfiguration,
+		AutoUpdateService:         cfg.AutoUpdateService,
 		Restrictions:              cfg.Restrictions,
 		Apps:                      cfg.Apps,
 		Kubernetes:                cfg.Kubernetes,
@@ -647,6 +654,7 @@ type Services struct {
 	services.DevicesGetter
 	services.SPIFFEFederations
 	services.StaticHostUser
+	services.AutoUpdateService
 }
 
 // GetWebSession returns existing web session described by req.

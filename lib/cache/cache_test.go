@@ -43,6 +43,7 @@ import (
 	"github.com/gravitational/teleport/api/client/proto"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
 	accessmonitoringrulesv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/accessmonitoringrules/v1"
+	"github.com/gravitational/teleport/api/gen/proto/go/teleport/autoupdate/v1"
 	clusterconfigpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/clusterconfig/v1"
 	crownjewelv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/crownjewel/v1"
 	dbobjectv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/dbobject/v1"
@@ -52,6 +53,7 @@ import (
 	userprovisioningpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/userprovisioning/v1"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/accesslist"
+	update "github.com/gravitational/teleport/api/types/autoupdate"
 	"github.com/gravitational/teleport/api/types/clusterconfig"
 	"github.com/gravitational/teleport/api/types/discoveryconfig"
 	"github.com/gravitational/teleport/api/types/header"
@@ -130,6 +132,7 @@ type testPack struct {
 	databaseObjects         services.DatabaseObjects
 	spiffeFederations       *local.SPIFFEFederationService
 	staticHostUsers         services.StaticHostUser
+	autoupdateService       services.AutoUpdateService
 }
 
 // testFuncs are functions to support testing an object in a cache.
@@ -358,6 +361,11 @@ func newPackWithoutCache(dir string, opts ...packOption) (*testPack, error) {
 	}
 	p.staticHostUsers = staticHostUserService
 
+	p.autoupdateService, err = local.NewAutoUpdateService(p.backend)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
 	return p, nil
 }
 
@@ -406,6 +414,7 @@ func newPack(dir string, setupConfig func(c Config) Config, opts ...packOption) 
 		SPIFFEFederations:       p.spiffeFederations,
 		DatabaseObjects:         p.databaseObjects,
 		StaticHostUsers:         p.staticHostUsers,
+		AutoupdateService:       p.autoupdateService,
 		MaxRetryPeriod:          200 * time.Millisecond,
 		EventsC:                 p.eventsC,
 	}))
@@ -812,6 +821,7 @@ func TestCompletenessInit(t *testing.T) {
 			DatabaseObjects:         p.databaseObjects,
 			SPIFFEFederations:       p.spiffeFederations,
 			StaticHostUsers:         p.staticHostUsers,
+			AutoupdateService:       p.autoupdateService,
 			MaxRetryPeriod:          200 * time.Millisecond,
 			EventsC:                 p.eventsC,
 		}))
@@ -891,6 +901,7 @@ func TestCompletenessReset(t *testing.T) {
 		DatabaseObjects:         p.databaseObjects,
 		SPIFFEFederations:       p.spiffeFederations,
 		StaticHostUsers:         p.staticHostUsers,
+		AutoupdateService:       p.autoupdateService,
 		MaxRetryPeriod:          200 * time.Millisecond,
 		EventsC:                 p.eventsC,
 	}))
@@ -1096,6 +1107,7 @@ func TestListResources_NodesTTLVariant(t *testing.T) {
 		DatabaseObjects:         p.databaseObjects,
 		SPIFFEFederations:       p.spiffeFederations,
 		StaticHostUsers:         p.staticHostUsers,
+		AutoupdateService:       p.autoupdateService,
 		MaxRetryPeriod:          200 * time.Millisecond,
 		EventsC:                 p.eventsC,
 		neverOK:                 true, // ensure reads are never healthy
@@ -1186,6 +1198,7 @@ func initStrategy(t *testing.T) {
 		DatabaseObjects:         p.databaseObjects,
 		SPIFFEFederations:       p.spiffeFederations,
 		StaticHostUsers:         p.staticHostUsers,
+		AutoupdateService:       p.autoupdateService,
 		MaxRetryPeriod:          200 * time.Millisecond,
 		EventsC:                 p.eventsC,
 	}))
@@ -2659,6 +2672,72 @@ func TestDatabaseObjects(t *testing.T) {
 	})
 }
 
+// TestAutoupdateConfig tests that CRUD operations on autoupdate config resource is
+// replicated from the backend to the cache.
+func TestAutoupdateConfig(t *testing.T) {
+	t.Parallel()
+
+	p := newTestPack(t, ForAuth)
+	t.Cleanup(p.Close)
+
+	testResources153(t, p, testFuncs153[*autoupdate.AutoupdateConfig]{
+		newResource: func(name string) (*autoupdate.AutoupdateConfig, error) {
+			return newAutoupdateConfig(t), nil
+		},
+		create: func(ctx context.Context, item *autoupdate.AutoupdateConfig) error {
+			_, err := p.autoupdateService.UpsertAutoupdateConfig(ctx, item)
+			return trace.Wrap(err)
+		},
+		list: func(ctx context.Context) ([]*autoupdate.AutoupdateConfig, error) {
+			item, err := p.autoupdateService.GetAutoupdateConfig(ctx)
+			return []*autoupdate.AutoupdateConfig{item}, trace.Wrap(err)
+		},
+		cacheList: func(ctx context.Context) ([]*autoupdate.AutoupdateConfig, error) {
+			item, err := p.cache.GetAutoupdateConfig(ctx)
+			if trace.IsNotFound(err) {
+				return nil, nil
+			}
+			return []*autoupdate.AutoupdateConfig{item}, trace.Wrap(err)
+		},
+		deleteAll: func(ctx context.Context) error {
+			return trace.Wrap(p.autoupdateService.DeleteAutoupdateConfig(ctx))
+		},
+	})
+}
+
+// TestAutoupdateVersion tests that CRUD operations on autoupdate version resource is
+// replicated from the backend to the cache.
+func TestAutoupdateVersion(t *testing.T) {
+	t.Parallel()
+
+	p := newTestPack(t, ForAuth)
+	t.Cleanup(p.Close)
+
+	testResources153(t, p, testFuncs153[*autoupdate.AutoupdateVersion]{
+		newResource: func(name string) (*autoupdate.AutoupdateVersion, error) {
+			return newAutoupdateVersion(t), nil
+		},
+		create: func(ctx context.Context, item *autoupdate.AutoupdateVersion) error {
+			_, err := p.autoupdateService.UpsertAutoupdateVersion(ctx, item)
+			return trace.Wrap(err)
+		},
+		list: func(ctx context.Context) ([]*autoupdate.AutoupdateVersion, error) {
+			item, err := p.autoupdateService.GetAutoupdateVersion(ctx)
+			return []*autoupdate.AutoupdateVersion{item}, trace.Wrap(err)
+		},
+		cacheList: func(ctx context.Context) ([]*autoupdate.AutoupdateVersion, error) {
+			item, err := p.cache.GetAutoupdateVersion(ctx)
+			if trace.IsNotFound(err) {
+				return nil, nil
+			}
+			return []*autoupdate.AutoupdateVersion{item}, trace.Wrap(err)
+		},
+		deleteAll: func(ctx context.Context) error {
+			return trace.Wrap(p.autoupdateService.DeleteAutoupdateVersion(ctx))
+		},
+	})
+}
+
 // TestGlobalNotifications tests that CRUD operations on global notification resources are
 // replicated from the backend to the cache.
 func TestGlobalNotifications(t *testing.T) {
@@ -3291,6 +3370,8 @@ func TestCacheWatchKindExistsInEvents(t *testing.T) {
 		types.KindAccessGraphSettings:     types.Resource153ToLegacy(newAccessGraphSettings(t)),
 		types.KindSPIFFEFederation:        types.Resource153ToLegacy(newSPIFFEFederation("test")),
 		types.KindStaticHostUser:          types.Resource153ToLegacy(newStaticHostUser(t, "test")),
+		types.KindAutoupdateConfig:        types.Resource153ToLegacy(newAutoupdateConfig(t)),
+		types.KindAutoupdateVersion:       types.Resource153ToLegacy(newAutoupdateVersion(t)),
 	}
 
 	for name, cfg := range cases {
@@ -3826,6 +3907,26 @@ func newStaticHostUser(t *testing.T, name string) *userprovisioningpb.StaticHost
 		Login:  "foo",
 		Groups: []string{"bar", "baz"},
 	})
+}
+
+func newAutoupdateConfig(t *testing.T) *autoupdate.AutoupdateConfig {
+	t.Helper()
+
+	r, err := update.NewAutoupdateConfig(&autoupdate.AutoupdateConfigSpec{
+		ToolsAutoupdate: true,
+	})
+	require.NoError(t, err)
+	return r
+}
+
+func newAutoupdateVersion(t *testing.T) *autoupdate.AutoupdateVersion {
+	t.Helper()
+
+	r, err := update.NewAutoupdateVersion(&autoupdate.AutoupdateVersionSpec{
+		ToolsVersion: "1.2.3",
+	})
+	require.NoError(t, err)
+	return r
 }
 
 func withKeepalive[T any](fn func(context.Context, T) (*types.KeepAlive, error)) func(context.Context, T) error {

@@ -30,7 +30,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gravitational/teleport/api/constants"
+	autoupdatepb "github.com/gravitational/teleport/api/gen/proto/go/teleport/autoupdate/v1"
 	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/api/types/autoupdate"
 	"github.com/gravitational/teleport/entitlements"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/backend"
@@ -72,6 +74,14 @@ func TestEditResources(t *testing.T) {
 		{
 			kind: types.KindSessionRecordingConfig,
 			edit: testEditSessionRecordingConfig,
+		},
+		{
+			kind: types.KindAutoUpdateConfig,
+			edit: testEditAutoUpdateConfig,
+		},
+		{
+			kind: types.KindAutoUpdateVersion,
+			edit: testEditAutoUpdateVersion,
 		},
 	}
 
@@ -484,4 +494,70 @@ func testEditSAMLConnector(t *testing.T, clt *authclient.Client) {
 	_, err = runEditCommand(t, clt, []string{"edit", "connector/saml"}, withEditor(editor))
 	assert.Error(t, err, "stale connector was allowed to be updated")
 	require.ErrorIs(t, err, backend.ErrIncorrectRevision, "expected an incorrect revision error, got %T", err)
+}
+
+func testEditAutoUpdateConfig(t *testing.T, clt *authclient.Client) {
+	ctx := context.Background()
+
+	expected, err := autoupdate.NewAutoUpdateConfig(&autoupdatepb.AutoUpdateConfigSpec{ToolsAutoupdate: true})
+	require.NoError(t, err)
+
+	initial, err := autoupdate.NewAutoUpdateConfig(&autoupdatepb.AutoUpdateConfigSpec{ToolsAutoupdate: false})
+	require.NoError(t, err)
+
+	_, err = clt.AutoUpdateServiceClient().CreateAutoUpdateConfig(ctx, initial)
+	require.NoError(t, err, "creating initial autoupdate config")
+
+	editor := func(name string) error {
+		f, err := os.Create(name)
+		if err != nil {
+			return trace.Wrap(err, "opening file to edit")
+		}
+		expected.GetMetadata().Revision = initial.GetMetadata().GetRevision()
+		collection := &autoupdateConfigCollection{config: expected}
+		return trace.NewAggregate(writeYAML(collection, f), f.Close())
+	}
+
+	// Edit the autoupdate configuration resource.
+	_, err = runEditCommand(t, clt, []string{"edit", "autoupdate_config"}, withEditor(editor))
+	require.NoError(t, err, "expected editing autoupdate config to succeed")
+
+	actual, err := clt.GetAutoUpdateConfig(ctx)
+	require.NoError(t, err, "failed to get autoupdate config after edit")
+	assert.NotEqual(t, initial.GetSpec().GetToolsAutoupdate(), actual.GetSpec().GetToolsAutoupdate(),
+		"tools_autoupdate should have been modified by edit")
+	assert.Equal(t, expected.GetSpec().GetToolsAutoupdate(), actual.GetSpec().GetToolsAutoupdate())
+}
+
+func testEditAutoUpdateVersion(t *testing.T, clt *authclient.Client) {
+	ctx := context.Background()
+
+	expected, err := autoupdate.NewAutoUpdateVersion(&autoupdatepb.AutoUpdateVersionSpec{ToolsVersion: "3.2.1"})
+	require.NoError(t, err)
+
+	initial, err := autoupdate.NewAutoUpdateVersion(&autoupdatepb.AutoUpdateVersionSpec{ToolsVersion: "1.2.3"})
+	require.NoError(t, err)
+
+	_, err = clt.AutoUpdateServiceClient().CreateAutoUpdateVersion(ctx, initial)
+	require.NoError(t, err, "creating initial autoupdate version")
+
+	editor := func(name string) error {
+		f, err := os.Create(name)
+		if err != nil {
+			return trace.Wrap(err, "opening file to edit")
+		}
+		expected.GetMetadata().Revision = initial.GetMetadata().GetRevision()
+		collection := &autoupdateVersionCollection{version: expected}
+		return trace.NewAggregate(writeYAML(collection, f), f.Close())
+	}
+
+	// Edit the autoupdate version resource.
+	_, err = runEditCommand(t, clt, []string{"edit", "autoupdate_version"}, withEditor(editor))
+	require.NoError(t, err, "expected editing autoupdate version to succeed")
+
+	actual, err := clt.GetAutoUpdateVersion(ctx)
+	require.NoError(t, err, "failed to get autoupdate version after edit")
+	assert.NotEqual(t, initial.GetSpec().GetToolsVersion(), actual.GetSpec().GetToolsVersion(),
+		"tools_autoupdate should have been modified by edit")
+	assert.Equal(t, expected.GetSpec().GetToolsVersion(), actual.GetSpec().GetToolsVersion())
 }

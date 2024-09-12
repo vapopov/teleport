@@ -96,6 +96,7 @@ import (
 	"github.com/gravitational/teleport/tool/common"
 	"github.com/gravitational/teleport/tool/common/fido2"
 	"github.com/gravitational/teleport/tool/common/touchid"
+	"github.com/gravitational/teleport/tool/common/update"
 	"github.com/gravitational/teleport/tool/common/webauthnwin"
 )
 
@@ -695,6 +696,28 @@ func initLogger(cf *CLIConf) {
 //
 // DO NOT RUN TESTS that call Run() in parallel (unless you taken precautions).
 func Run(ctx context.Context, args []string, opts ...CliOption) error {
+	// At process startup, check if a version has already been downloaded to
+	// $TELEPORT_HOME/bin or if the user has set the TELEPORT_TOOLS_VERSION
+	// environment variable. If so, re-exec that version of {tsh, tctl}.
+	toolsVersion, reexec := update.CheckLocal()
+	if reexec {
+		// Download the version of client tools required by the cluster. This
+		// is required if the user passed in the TELEPORT_TOOLS_VERSION
+		// explicitly.
+		if err := update.Download(toolsVersion); err != nil {
+			return trace.Wrap(err)
+		}
+
+		// Re-execute client tools with the correct version of client tools.
+		code, err := update.Exec()
+		if err != nil {
+			log.Debugf("Failed to re-exec client tool: %v.", err)
+			// TODO(russjones): Is 255 the correct error code here?
+			os.Exit(255)
+		} else {
+			os.Exit(code)
+		}
+	}
 	cf := CLIConf{
 		Context:            ctx,
 		TracingProvider:    tracing.NoopProvider(),

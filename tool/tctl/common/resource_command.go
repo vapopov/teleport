@@ -42,6 +42,7 @@ import (
 	apiclient "github.com/gravitational/teleport/api/client"
 	"github.com/gravitational/teleport/api/client/proto"
 	apidefaults "github.com/gravitational/teleport/api/defaults"
+	"github.com/gravitational/teleport/api/gen/proto/go/teleport/autoupdate/v1"
 	clusterconfigpb "github.com/gravitational/teleport/api/gen/proto/go/teleport/clusterconfig/v1"
 	crownjewelv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/crownjewel/v1"
 	dbobjectv1 "github.com/gravitational/teleport/api/gen/proto/go/teleport/dbobject/v1"
@@ -168,6 +169,8 @@ func (rc *ResourceCommand) Initialize(app *kingpin.Application, config *servicec
 		types.KindPlugin:                   rc.createPlugin,
 		types.KindSPIFFEFederation:         rc.createSPIFFEFederation,
 		types.KindStaticHostUser:           rc.createStaticHostUser,
+		types.KindAutoUpdateConfig:         rc.createAutoUpdateConfig,
+		types.KindAutoUpdateVersion:        rc.createAutoUpdateVersion,
 	}
 	rc.UpdateHandlers = map[ResourceKind]ResourceCreateHandler{
 		types.KindUser:                    rc.updateUser,
@@ -184,6 +187,8 @@ func (rc *ResourceCommand) Initialize(app *kingpin.Application, config *servicec
 		types.KindAccessGraphSettings:     rc.updateAccessGraphSettings,
 		types.KindPlugin:                  rc.updatePlugin,
 		types.KindStaticHostUser:          rc.updateStaticHostUser,
+		types.KindAutoUpdateConfig:        rc.updateAutoUpdateConfig,
+		types.KindAutoUpdateVersion:       rc.updateAutoUpdateVersion,
 	}
 	rc.config = config
 
@@ -2995,7 +3000,20 @@ func (rc *ResourceCommand) getCollection(ctx context.Context, client *authclient
 			nextToken = token
 		}
 		return &staticHostUserCollection{items: hostUsers}, nil
+	case types.KindAutoUpdateConfig:
+		config, err := client.AutoUpdateServiceClient().GetAutoUpdateConfig(ctx)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		return &autoupdateConfigCollection{config}, nil
+	case types.KindAutoUpdateVersion:
+		version, err := client.AutoUpdateServiceClient().GetAutoUpdateVersion(ctx)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+		return &autoupdateVersionCollection{version}, nil
 	}
+
 	return nil, trace.BadParameter("getting %q is not supported", rc.ref.String())
 }
 
@@ -3338,5 +3356,67 @@ func (rc *ResourceCommand) updateAccessGraphSettings(ctx context.Context, client
 		return trace.Wrap(err)
 	}
 	fmt.Println("access_graph_settings has been updated")
+	return nil
+}
+
+func (rc *ResourceCommand) createAutoUpdateConfig(ctx context.Context, client *authclient.Client, raw services.UnknownResource) error {
+	config, err := services.UnmarshalProtoResource[*autoupdate.AutoUpdateConfig](raw.Raw)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	if rc.IsForced() {
+		_, err = client.AutoUpdateServiceClient().UpsertAutoUpdateConfig(ctx, config)
+	} else {
+		_, err = client.AutoUpdateServiceClient().CreateAutoUpdateConfig(ctx, config)
+	}
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	fmt.Println("autoupdate_config has been created")
+	return nil
+}
+
+func (rc *ResourceCommand) updateAutoUpdateConfig(ctx context.Context, client *authclient.Client, raw services.UnknownResource) error {
+	config, err := services.UnmarshalProtoResource[*autoupdate.AutoUpdateConfig](raw.Raw)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	if _, err := client.AutoUpdateServiceClient().UpdateAutoUpdateConfig(ctx, config); err != nil {
+		return trace.Wrap(err)
+	}
+	fmt.Println("autoupdate_config has been updated")
+	return nil
+}
+
+func (rc *ResourceCommand) createAutoUpdateVersion(ctx context.Context, client *authclient.Client, raw services.UnknownResource) error {
+	version, err := services.UnmarshalProtoResource[*autoupdate.AutoUpdateVersion](raw.Raw)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	if rc.IsForced() {
+		_, err = client.AutoUpdateServiceClient().UpsertAutoUpdateVersion(ctx, version)
+	} else {
+		_, err = client.AutoUpdateServiceClient().CreateAutoUpdateVersion(ctx, version)
+	}
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
+	fmt.Println("autoupdate_version has been created")
+	return nil
+}
+
+func (rc *ResourceCommand) updateAutoUpdateVersion(ctx context.Context, client *authclient.Client, raw services.UnknownResource) error {
+	version, err := services.UnmarshalProtoResource[*autoupdate.AutoUpdateVersion](raw.Raw)
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	if _, err := client.AutoUpdateServiceClient().UpdateAutoUpdateVersion(ctx, version); err != nil {
+		return trace.Wrap(err)
+	}
+	fmt.Println("autoupdate_version has been updated")
 	return nil
 }
